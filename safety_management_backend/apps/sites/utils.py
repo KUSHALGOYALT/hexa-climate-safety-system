@@ -19,10 +19,14 @@ def reverse_geocode(latitude, longitude):
             'zoom': 18
         }
         
+        logger.info(f"Calling Nominatim API with params: {params}")
         response = requests.get(url, params=params, timeout=10)
+        logger.info(f"Response status: {response.status_code}")
+        
         response.raise_for_status()
         
         data = response.json()
+        logger.info(f"Response data: {data}")
         
         if data.get('error'):
             logger.error(f"Reverse geocoding error: {data['error']}")
@@ -41,6 +45,7 @@ def reverse_geocode(latitude, longitude):
             'longitude': longitude
         }
         
+        logger.info(f"Extracted result: {result}")
         return result
         
     except requests.RequestException as e:

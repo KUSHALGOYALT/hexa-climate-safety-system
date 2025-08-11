@@ -1,91 +1,36 @@
 from rest_framework import serializers
-from .models import Employee, EmployeeLocation
-from apps.sites.models import Site
-from apps.companies.models import Entity
-
-class EmployeeLocationSerializer(serializers.ModelSerializer):
-    """Serializer for employee location assignments"""
-    location_name = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = EmployeeLocation
-        fields = [
-            'id', 'location_type', 'location_id', 'location_name',
-            'show_in_emergency_contacts', 'is_active', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-    def validate(self, data):
-        """Validate location assignment"""
-        location_type = data.get('location_type')
-        location_id = data.get('location_id')
-        
-        if location_type == 'site':
-            try:
-                Site.objects.get(id=location_id)
-            except (Site.DoesNotExist, ValueError):
-                raise serializers.ValidationError("Invalid site ID")
-        elif location_type == 'entity':
-            try:
-                Entity.objects.get(id=location_id)
-            except (Entity.DoesNotExist, ValueError):
-                raise serializers.ValidationError("Invalid entity ID")
-        elif location_type == 'headquarters':
-            if location_id != 'headquarters':
-                raise serializers.ValidationError("Headquarters location_id must be 'headquarters'")
-        elif location_type == 'company':
-            if location_id != 'company':
-                raise serializers.ValidationError("Company location_id must be 'company'")
-        
-        return data
-
+from .models import Employee, EmployeeAssignment
+from apps.companies.serializers import CompanySerializer
+from apps.sites.serializers import SiteSerializer
 
 class EmployeeSerializer(serializers.ModelSerializer):
-    """Full serializer for employee details"""
-    locations = EmployeeLocationSerializer(many=True, read_only=True)
-
+    """Full serializer for Employee model"""
+    company = CompanySerializer(read_only=True)
+    company_id = serializers.IntegerField(write_only=True)
+    
     class Meta:
         model = Employee
-        fields = [
-            'id', 'employee_id', 'name', 'email', 'phone', 
-            'designation', 'department', 'is_active',
-            'locations', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-    def validate_employee_id(self, value):
-        """Validate that employee_id is unique"""
-        if self.instance:
-            if Employee.objects.filter(employee_id=value).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError("Employee ID already exists.")
-        else:
-            if Employee.objects.filter(employee_id=value).exists():
-                raise serializers.ValidationError("Employee ID already exists.")
-        return value
-
-    def validate_email(self, value):
-        """Validate that email is unique"""
-        if self.instance:
-            if Employee.objects.filter(email=value).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError("Email already exists.")
-        else:
-            if Employee.objects.filter(email=value).exists():
-                raise serializers.ValidationError("Email already exists.")
-        return value
-
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at')
+    
+    def to_representation(self, instance):
+        """Custom representation for API responses"""
+        data = super().to_representation(instance)
+        data['full_name'] = instance.full_name
+        data['is_emergency_contact'] = instance.is_emergency_contact
+        return data
 
 class EmployeeListSerializer(serializers.ModelSerializer):
-    """Simplified serializer for listing employees"""
-    locations = EmployeeLocationSerializer(many=True, read_only=True)
-
+    """Simplified serializer for employee lists"""
+    company_name = serializers.CharField(source='company.name', read_only=True)
+    
     class Meta:
         model = Employee
         fields = [
-            'id', 'employee_id', 'name', 'email', 'phone',
-            'designation', 'department', 'is_active',
-            'locations', 'created_at'
+            'id', 'name', 'employee_id', 'position', 'employment_type',
+            'company_name', 'phone', 'email', 'is_active', 'created_at'
         ]
-
+        read_only_fields = ('created_at',)
 
 class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating and updating employees"""
@@ -93,39 +38,45 @@ class EmployeeCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Employee
         fields = [
-            'id', 'employee_id', 'name', 'email', 'phone',
-            'designation', 'department', 'is_active'
+            'company', 'name', 'employee_id', 'position', 'employment_type',
+            'phone', 'email', 'emergency_contact_name', 'emergency_contact_phone',
+            'emergency_contact_relationship', 'is_active'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
+    
     def validate_employee_id(self, value):
-        """Validate that employee_id is unique"""
-        if self.instance:
-            if Employee.objects.filter(employee_id=value).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError("Employee ID already exists.")
-        else:
-            if Employee.objects.filter(employee_id=value).exists():
-                raise serializers.ValidationError("Employee ID already exists.")
+        """Validate employee ID uniqueness"""
+        if Employee.objects.filter(employee_id=value).exists():
+            raise serializers.ValidationError("Employee ID must be unique.")
         return value
 
-    def validate_email(self, value):
-        """Validate that email is unique"""
-        if self.instance:
-            if Employee.objects.filter(email=value).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError("Email already exists.")
-        else:
-            if Employee.objects.filter(email=value).exists():
-                raise serializers.ValidationError("Email already exists.")
-        return value
-
+class EmployeeAssignmentSerializer(serializers.ModelSerializer):
+    """Serializer for employee assignments"""
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    site_name = serializers.CharField(source='site.name', read_only=True)
+    
+    class Meta:
+        model = EmployeeAssignment
+        fields = [
+            'id', 'employee', 'employee_name', 'site', 'site_name',
+            'is_primary', 'is_active', 'assigned_date', 'end_date'
+        ]
+        read_only_fields = ('assigned_date',)
 
 class EmergencyContactSerializer(serializers.ModelSerializer):
-    """Serializer for emergency contacts"""
-    locations = EmployeeLocationSerializer(many=True, read_only=True)
-
+    """Serializer for emergency contacts (employees)"""
+    
     class Meta:
         model = Employee
         fields = [
-            'id', 'name', 'email', 'phone', 'designation', 'department',
-            'locations'
+            'id', 'name', 'position', 'phone', 'email',
+            'emergency_contact_name', 'emergency_contact_phone',
+            'emergency_contact_relationship'
         ]
+    
+    def to_representation(self, instance):
+        """Custom representation for emergency contacts"""
+        data = super().to_representation(instance)
+        data['contact_name'] = instance.emergency_contact_name or instance.name
+        data['contact_phone'] = instance.emergency_contact_phone or instance.phone
+        data['contact_relationship'] = instance.emergency_contact_relationship or 'Employee'
+        return data 
